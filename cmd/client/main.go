@@ -3,6 +3,7 @@ package main
 import (
 	"game/internal/client"
 	"game/internal/client/systems"
+	"game/internal/shared"
 
 	"github.com/andygeiss/ecs"
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -25,12 +26,14 @@ func main() {
 		Camera:        &camera,
 		EntityManager: em,
 		SystemManager: sm,
+		Players:       make(map[string]*shared.PlayerState),
 	}
 
 	sm.Add(systems.NewRenderingSystem(&container))
 	sm.Add(systems.NewPlayerSystem(&container))
 	sm.Add(systems.NewAnimationSystem())
 	sm.Add(systems.NewRemotePlayerSystem(&container))
+	sm.Add(systems.NewInterpolationSystem())
 
 	de := ecs.NewDefaultEngine(em, sm)
 	de.Setup()

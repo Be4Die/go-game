@@ -79,19 +79,10 @@ func (gr *GameRenderer) Process(em ecs.EntityManager) {
 		}
 	}
 
-	for _, e := range em.FilterByMask(components.MaskTransform) {
-		var nickname string
-
-		if player := e.Get(components.MaskPlayer); player != nil {
-			nickname = player.(*components.Player).Nickname
-		} else if remote := e.Get(components.MaskRemote); remote != nil {
-			nickname = remote.(*components.Remote).Nickname
-		} else {
-			continue
-		}
-
+	for _, e := range em.FilterByMask(components.MaskTransform | components.MaskNetworkIdentity) {
+		identity := e.Get(components.MaskNetworkIdentity).(*components.NetworkIdentity)
 		transform := e.Get(components.MaskTransform).(*components.Transform)
-		gr.drawNickname(transform.Position, nickname)
+		gr.drawNickname(transform.Position, identity.Nickname)
 	}
 
 	rl.EndMode3D()

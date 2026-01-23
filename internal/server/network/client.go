@@ -1,4 +1,4 @@
-package server
+package network
 
 import (
 	"log"
@@ -19,24 +19,24 @@ const (
 	pingPeriod = (pongWait * 9) / 10
 
 	// Maximum message size allowed from peer.
-	maxMessageSize = 16384 // Увеличил с 512 до 16KB
+	maxMessageSize = 16384
 )
 
 type Client struct {
 	id       string
 	conn     *websocket.Conn
-	server   *Server
+	manager  *Manager
 	send     chan []byte
 	nickname string
 	isAlive  bool
 	lastPing time.Time
 }
 
-func NewClient(conn *websocket.Conn, server *Server) *Client {
+func NewClient(conn *websocket.Conn, manager *Manager) *Client {
 	return &Client{
 		id:       uuid.New().String(),
 		conn:     conn,
-		server:   server,
+		manager:  manager,
 		send:     make(chan []byte, 256),
 		isAlive:  true,
 		lastPing: time.Now(),
@@ -45,7 +45,7 @@ func NewClient(conn *websocket.Conn, server *Server) *Client {
 
 func (c *Client) readPump() {
 	defer func() {
-		c.server.unregister <- c
+		c.manager.unregister <- c
 		c.conn.Close()
 	}()
 
@@ -67,8 +67,8 @@ func (c *Client) readPump() {
 			break
 		}
 
-		// Обрабатываем сообщение от клиента
-		c.server.handleClientMessage(c, message)
+		// Process message
+		c.manager.handleClientMessage(c, message)
 	}
 }
 
@@ -84,7 +84,6 @@ func (c *Client) writePump() {
 		case message, ok := <-c.send:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
-				// Сервер закрыл канал
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
@@ -95,7 +94,6 @@ func (c *Client) writePump() {
 			}
 			w.Write(message)
 
-			// Добавляем другие сообщения в буфер
 			n := len(c.send)
 			for i := 0; i < n; i++ {
 				w.Write(<-c.send)
@@ -112,7 +110,6 @@ func (c *Client) writePump() {
 			}
 			c.lastPing = time.Now()
 
-			// Проверяем живой ли клиент (если не получали pong слишком долго)
 			if time.Since(c.lastPing) > pongWait*2 {
 				log.Printf("Client %s seems dead, disconnecting", c.id)
 				c.isAlive = false
@@ -122,13 +119,11 @@ func (c *Client) writePump() {
 	}
 }
 
-// SendMessage отправляет сообщение клиенту
 func (c *Client) SendMessage(messageType int, data []byte) error {
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 	return c.conn.WriteMessage(messageType, data)
 }
 
-// Close закрывает соединение
 func (c *Client) Close() {
 	c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 	time.Sleep(100 * time.Millisecond)

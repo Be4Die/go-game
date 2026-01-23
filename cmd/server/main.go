@@ -10,21 +10,21 @@ import (
 	"syscall"
 	"time"
 
-	"game/internal/server"
+	"game/internal/server/network"
 )
 
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP service address")
 	flag.Parse()
 
-	srv := server.NewServer()
+	mgr := network.NewManager()
 
-	// Запускаем сервер в отдельной горутине
-	go srv.Run()
+	// Run manager in a separate goroutine
+	go mgr.Run()
 
 	// WebSocket endpoint
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		server.ServeWs(srv, w, r)
+		network.ServeWs(mgr, w, r)
 	})
 
 	// Health check endpoint
@@ -33,18 +33,18 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
-	// Создаем HTTP сервер
+	// Create HTTP server
 	httpServer := &http.Server{
 		Addr:              *addr,
 		ReadHeaderTimeout: 3 * time.Second,
 		Handler:           http.DefaultServeMux,
 	}
 
-	// Канал для сигналов
+	// Channel for signals
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
-	// Горутина для graceful shutdown
+	// Goroutine for graceful shutdown
 	go func() {
 		sig := <-sigs
 		log.Printf("Received signal: %v", sig)
@@ -53,8 +53,8 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		// Останавливаем сервер
-		srv.Stop()
+		// Stop manager
+		mgr.Stop()
 
 		if err := httpServer.Shutdown(ctx); err != nil {
 			log.Printf("HTTP server shutdown error: %v", err)

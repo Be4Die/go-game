@@ -21,7 +21,6 @@ type PlayerSystem struct {
 	lastInputSendTime time.Time
 	inputBuffer       []shared.InputMessage
 	lastServerState   *shared.PlayerState
-	predictedPosition rl.Vector3
 }
 
 func NewPlayerSystem(container *client.DataContainer) *PlayerSystem {
@@ -40,12 +39,13 @@ func (ps *PlayerSystem) Process(em ecs.EntityManager) (state int) {
 		return ecs.StateEngineContinue
 	}
 
-	for _, entity := range em.FilterByMask(components.MaskPlayer | components.MaskTransform | components.MaskAnimator) {
-		player := entity.Get(components.MaskPlayer).(*components.Player)
+	for _, entity := range em.FilterByMask(components.MaskPlayerController | components.MaskTransform | components.MaskAnimator) {
+		player := entity.Get(components.MaskPlayerController).(*components.PlayerController)
 		transform := entity.Get(components.MaskTransform).(*components.Transform)
 		animator := entity.Get(components.MaskAnimator).(*components.Animator)
 
-		player.Nickname = ps.container.PlayerNickname
+		// Optional: Update Identity nickname if needed, but it's usually static
+		// identity := entity.Get(components.MaskNetworkIdentity).(*components.NetworkIdentity)
 
 		isMoving := ps.processMovement(player, transform)
 		ps.processJump(player, transform)
@@ -108,43 +108,10 @@ func (ps *PlayerSystem) sendInputToServer(transform *components.Transform, anima
 func (ps *PlayerSystem) applyPrediction(transform *components.Transform) {
 	// Предикция - предсказываем положение на основе последнего известного состояния сервера
 	// и буфера ввода. Это упрощенная версия.
-
-	if ps.lastServerState == nil {
-		return
-	}
-
-	// Если расхождение слишком большое, корректируем
-	serverPos := rl.NewVector3(
-		ps.lastServerState.Position.X,
-		ps.lastServerState.Position.Y,
-		ps.lastServerState.Position.Z,
-	)
-
-	// Вычисляем расстояние
-	deltaX := serverPos.X - transform.Position.X
-	deltaY := serverPos.Y - transform.Position.Y
-	deltaZ := serverPos.Z - transform.Position.Z
-	distance := float32(math.Sqrt(float64(deltaX*deltaX + deltaY*deltaY + deltaZ*deltaZ)))
-
-	if distance > 2.0 {
-		// Корректируем позицию
-		interpolationSpeed := float32(10.0)
-		frameTime := rl.GetFrameTime()
-
-		// Интерполируем позицию
-		moveAmount := interpolationSpeed * frameTime
-		if distance < moveAmount {
-			transform.Position = serverPos
-		} else {
-			factor := moveAmount / distance
-			transform.Position.X += deltaX * factor
-			transform.Position.Y += deltaY * factor
-			transform.Position.Z += deltaZ * factor
-		}
-	}
+	// Здесь можно добавить логику согласования с сервером
 }
 
-func (ps *PlayerSystem) processMovement(player *components.Player, transform *components.Transform) bool {
+func (ps *PlayerSystem) processMovement(player *components.PlayerController, transform *components.Transform) bool {
 	moveDirection := ps.calculateMoveDirection()
 	isMoving := moveDirection.X != 0 || moveDirection.Z != 0
 
@@ -224,13 +191,13 @@ func (ps *PlayerSystem) normalizeAngle(angle float32) float32 {
 	return angle
 }
 
-func (ps *PlayerSystem) processJump(player *components.Player, transform *components.Transform) {
+func (ps *PlayerSystem) processJump(player *components.PlayerController, transform *components.Transform) {
 	ps.handleJumpInput(player)
 	ps.updateJumpPhysics(transform)
 	ps.updateGroundedState(player, transform)
 }
 
-func (ps *PlayerSystem) handleJumpInput(player *components.Player) {
+func (ps *PlayerSystem) handleJumpInput(player *components.PlayerController) {
 	if rl.IsKeyPressed(rl.KeySpace) && !ps.isJumping && player.IsGrounded {
 		ps.isJumping = true
 		ps.jumpVelocity = 10.0
@@ -252,7 +219,7 @@ func (ps *PlayerSystem) updateJumpPhysics(transform *components.Transform) {
 	}
 }
 
-func (ps *PlayerSystem) updateGroundedState(player *components.Player, transform *components.Transform) {
+func (ps *PlayerSystem) updateGroundedState(player *components.PlayerController, transform *components.Transform) {
 	player.IsGrounded = !ps.isJumping && transform.Position.Y == 0
 }
 
@@ -315,7 +282,12 @@ func (ps *PlayerSystem) Setup() {
 		components.NewModel("assets/characters/character-male-c.glb").
 			WithTexture("assets/characters/colormap.png"),
 		components.NewAnimator("assets/characters/character-male-c.glb"),
-		components.NewPlayer(ps.container.PlayerNickname),
+		components.NewPlayerController(),
+		&components.NetworkIdentity{
+			ID:       ps.container.PlayerID,
+			Nickname: ps.container.PlayerNickname,
+			IsLocal:  true,
+		},
 	})
 
 	ps.container.EntityManager.Add(playerEntity)

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"game/internal/shared"
 	"sync"
 	"time"
 
@@ -23,7 +24,7 @@ type DataContainer struct {
 	EntityManager  ecs.EntityManager
 	SystemManager  ecs.SystemManager
 	Network        *Network
-	Players        map[string]*RemotePlayer
+	Players        map[string]*shared.PlayerState
 	NetworkError   string
 	Mu             sync.RWMutex
 
@@ -32,21 +33,11 @@ type DataContainer struct {
 	PacketCount    int64
 }
 
-type RemotePlayer struct {
-	ID         string
-	Nickname   string
-	Position   rl.Vector3
-	Rotation   float32
-	Animation  int32
-	LastUpdate time.Time
-	IsActive   bool
-}
-
 // AddPlayer добавляет удаленного игрока
-func (c *DataContainer) AddPlayer(player *RemotePlayer) {
+func (c *DataContainer) AddPlayer(player *shared.PlayerState) {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
-	c.Players[player.ID] = player
+	c.Players[player.PlayerID] = player
 }
 
 // RemovePlayer удаляет удаленного игрока
@@ -57,7 +48,7 @@ func (c *DataContainer) RemovePlayer(playerID string) {
 }
 
 // GetPlayer возвращает удаленного игрока
-func (c *DataContainer) GetPlayer(playerID string) (*RemotePlayer, bool) {
+func (c *DataContainer) GetPlayer(playerID string) (*shared.PlayerState, bool) {
 	c.Mu.RLock()
 	defer c.Mu.RUnlock()
 	player, exists := c.Players[playerID]
@@ -65,11 +56,11 @@ func (c *DataContainer) GetPlayer(playerID string) (*RemotePlayer, bool) {
 }
 
 // GetAllPlayers возвращает всех удаленных игроков
-func (c *DataContainer) GetAllPlayers() []*RemotePlayer {
+func (c *DataContainer) GetAllPlayers() []*shared.PlayerState {
 	c.Mu.RLock()
 	defer c.Mu.RUnlock()
 
-	players := make([]*RemotePlayer, 0, len(c.Players))
+	players := make([]*shared.PlayerState, 0, len(c.Players))
 	for _, player := range c.Players {
 		players = append(players, player)
 	}
@@ -80,7 +71,7 @@ func (c *DataContainer) GetAllPlayers() []*RemotePlayer {
 func (c *DataContainer) ClearPlayers() {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
-	c.Players = make(map[string]*RemotePlayer)
+	c.Players = make(map[string]*shared.PlayerState)
 }
 
 // SetNetworkError устанавливает ошибку сети

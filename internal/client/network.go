@@ -8,7 +8,6 @@ import (
 
 	"game/internal/shared"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
 	"github.com/gorilla/websocket"
 )
 
@@ -327,21 +326,16 @@ func (n *Network) updateRemotePlayers(players []shared.PlayerState) {
 		foundPlayers[player.PlayerID] = true
 
 		if existing, exists := n.container.Players[player.PlayerID]; exists {
-			existing.Position = n.vector3FromShared(player.Position)
+			existing.Position = player.Position
 			existing.Rotation = player.Rotation
 			existing.Animation = player.Animation
 			existing.LastUpdate = time.Now()
 			existing.IsActive = true
 		} else {
-			n.container.Players[player.PlayerID] = &RemotePlayer{
-				ID:         player.PlayerID,
-				Nickname:   player.Nickname,
-				Position:   n.vector3FromShared(player.Position),
-				Rotation:   player.Rotation,
-				Animation:  player.Animation,
-				LastUpdate: time.Now(),
-				IsActive:   true,
-			}
+			newPlayer := player
+			newPlayer.LastUpdate = time.Now()
+			newPlayer.IsActive = true
+			n.container.Players[player.PlayerID] = &newPlayer
 			log.Printf("Remote player added: %s", player.Nickname)
 		}
 	}
@@ -369,14 +363,7 @@ func (n *Network) removeRemotePlayer(playerID string, notify bool) {
 		// Устанавливаем флаг неактивности и удаляем сразу
 		player.IsActive = false
 		delete(n.container.Players, playerID)
-
-		// Также удаляем из списка сущностей в RemotePlayerSystem
-		// Это произойдет в следующем кадре через Process()
 	}
-}
-
-func (n *Network) vector3FromShared(v shared.Vector3) rl.Vector3 {
-	return rl.NewVector3(v.X, v.Y, v.Z)
 }
 
 func (n *Network) sendCloseMessage() {
