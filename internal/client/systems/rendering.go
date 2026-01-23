@@ -30,6 +30,7 @@ func (r *RenderingSystem) Setup() {
 	r.menuRenderer = rendering.NewMenuRenderer(r.container)
 
 	r.gameRenderer.Setup()
+	r.menuRenderer.Setup()
 }
 
 func (r *RenderingSystem) Process(em ecs.EntityManager) (state int) {
@@ -38,6 +39,7 @@ func (r *RenderingSystem) Process(em ecs.EntityManager) (state int) {
 	}
 
 	rl.BeginDrawing()
+	rl.ClearBackground(rl.RayWhite)
 
 	switch r.container.GameState {
 
@@ -57,6 +59,9 @@ func (r *RenderingSystem) Process(em ecs.EntityManager) (state int) {
 func (r *RenderingSystem) Teardown() {
 	if r.gameRenderer != nil {
 		r.gameRenderer.Teardown()
+	}
+	if r.menuRenderer != nil {
+		r.menuRenderer.Teardown()
 	}
 	rl.CloseWindow()
 }

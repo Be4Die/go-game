@@ -10,9 +10,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func GameBoot(container *DataContainer, nickname string) {
+func GameBoot(container *DataContainer, nickname, model string) {
 	container.GameState = GameStateConnecting
 	container.PlayerNickname = nickname
+	container.PlayerModel = model
 	// Players больше не используется, удаляем инициализацию
 
 	// Показываем сообщение о подключении
@@ -45,6 +46,7 @@ func GameBoot(container *DataContainer, nickname string) {
 	// Отправляем сообщение о присоединении
 	joinMsg := shared.JoinMessage{
 		Nickname: nickname,
+		Model:    model,
 	}
 
 	data, err := json.Marshal(joinMsg)

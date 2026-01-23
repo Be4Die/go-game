@@ -19,6 +19,7 @@ const (
 type DataContainer struct {
 	GameState      int
 	PlayerNickname string
+	PlayerModel    string
 	PlayerID       string
 	Camera         *rl.Camera
 	EntityManager  ecs.EntityManager

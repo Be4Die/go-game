@@ -19,13 +19,14 @@ func NewWorld() *World {
 	}
 }
 
-func (w *World) AddPlayer(id, nickname string) *shared.PlayerState {
+func (w *World) AddPlayer(id, nickname, model string) *shared.PlayerState {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	player := &shared.PlayerState{
 		PlayerID:   id,
 		Nickname:   nickname,
+		Model:      model,
 		Position:   shared.Vector3{X: 0, Y: 0, Z: 0},
 		Rotation:   0,
 		Velocity:   shared.Vector3{X: 0, Y: 0, Z: 0},

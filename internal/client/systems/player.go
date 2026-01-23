@@ -13,6 +13,7 @@ import (
 
 type PlayerSystem struct {
 	container         *client.DataContainer
+	spawned           bool
 	jumpVelocity      float32
 	isJumping         bool
 	gravity           float32
@@ -35,8 +36,14 @@ func NewPlayerSystem(container *client.DataContainer) *PlayerSystem {
 }
 
 func (ps *PlayerSystem) Process(em ecs.EntityManager) (state int) {
-	if ps.container.GameState == client.GameStateMenu {
+	if ps.container.GameState != client.GameStateRunning {
+		ps.spawned = false
 		return ecs.StateEngineContinue
+	}
+
+	if !ps.spawned {
+		ps.spawnLocalPlayer(em)
+		ps.spawned = true
 	}
 
 	for _, entity := range em.FilterByMask(components.MaskPlayerController | components.MaskTransform | components.MaskAnimator) {
@@ -60,6 +67,43 @@ func (ps *PlayerSystem) Process(em ecs.EntityManager) (state int) {
 	}
 
 	return ecs.StateEngineContinue
+}
+
+func (ps *PlayerSystem) spawnLocalPlayer(em ecs.EntityManager) {
+	for _, entity := range em.FilterByMask(components.MaskNetworkIdentity) {
+		identity, ok := entity.Get(components.MaskNetworkIdentity).(*components.NetworkIdentity)
+		if !ok || identity == nil {
+			continue
+		}
+		if identity.IsLocal {
+			em.Remove(entity)
+		}
+	}
+
+	modelPath := "assets/characters/character-male-c.glb"
+	if ps.container.PlayerModel != "" {
+		modelPath = ps.container.PlayerModel
+	}
+
+	playerEntity := ecs.NewEntity("player", []ecs.Component{
+		&components.Transform{
+			Position: rl.NewVector3(0.0, 0.0, 0.0),
+			Rotation: rl.Quaternion{X: 0, Y: 0, Z: 0, W: 1},
+			Scale:    rl.NewVector3(2, 2, 2),
+		},
+		components.NewModel(modelPath).
+			WithTexture("assets/characters/colormap.png"),
+		components.NewAnimator(modelPath),
+		components.NewPlayerController(),
+		&components.NetworkIdentity{
+			ID:       ps.container.PlayerID,
+			Nickname: ps.container.PlayerNickname,
+			Model:    ps.container.PlayerModel,
+			IsLocal:  true,
+		},
+	})
+
+	em.Add(playerEntity)
 }
 
 func (ps *PlayerSystem) sendInputToServer(transform *components.Transform, animator *components.Animator) {
@@ -272,26 +316,7 @@ func (ps *PlayerSystem) updateCameraPosition(transform *components.Transform) {
 	)
 }
 
-func (ps *PlayerSystem) Setup() {
-	playerEntity := ecs.NewEntity("player", []ecs.Component{
-		&components.Transform{
-			Position: rl.NewVector3(0.0, 0.0, 0.0),
-			Rotation: rl.Quaternion{X: 0, Y: 0, Z: 0, W: 1},
-			Scale:    rl.NewVector3(2, 2, 2),
-		},
-		components.NewModel("assets/characters/character-male-c.glb").
-			WithTexture("assets/characters/colormap.png"),
-		components.NewAnimator("assets/characters/character-male-c.glb"),
-		components.NewPlayerController(),
-		&components.NetworkIdentity{
-			ID:       ps.container.PlayerID,
-			Nickname: ps.container.PlayerNickname,
-			IsLocal:  true,
-		},
-	})
-
-	ps.container.EntityManager.Add(playerEntity)
-}
+func (ps *PlayerSystem) Setup() {}
 
 func (ps *PlayerSystem) Teardown() {
 	for _, entity := range ps.container.EntityManager.FilterByMask(components.MaskAnimator) {

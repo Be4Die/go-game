@@ -83,14 +83,20 @@ func (r *RemotePlayerSystem) createRemoteEntity(player *shared.PlayerState) *ecs
 	}
 	transform.SetYaw(player.Rotation)
 
+	modelPath := "assets/characters/character-male-c.glb"
+	if player.Model != "" {
+		modelPath = player.Model
+	}
+
 	return ecs.NewEntity("remote_"+player.PlayerID, []ecs.Component{
 		transform,
-		components.NewModel("assets/characters/character-male-c.glb").
+		components.NewModel(modelPath).
 			WithTexture("assets/characters/colormap.png"),
-		components.NewAnimator("assets/characters/character-male-c.glb"),
+		components.NewAnimator(modelPath),
 		&components.NetworkIdentity{
 			ID:       player.PlayerID,
 			Nickname: player.Nickname,
+			Model:    player.Model,
 			IsLocal:  false,
 		},
 		&components.Interpolation{

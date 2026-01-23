@@ -27,6 +27,7 @@ type WelcomeMessage struct {
 
 type JoinMessage struct {
 	Nickname string `json:"nickname"`
+	Model    string `json:"model"`
 }
 
 type LeaveMessage struct {
@@ -55,6 +56,7 @@ type HeartbeatMessage struct {
 type NewPlayerMessage struct {
 	PlayerID string `json:"playerId"`
 	Nickname string `json:"nickname"`
+	Model    string `json:"model"`
 }
 
 type PlayerLeftMessage struct {

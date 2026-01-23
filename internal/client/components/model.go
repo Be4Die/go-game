@@ -18,6 +18,10 @@ func NewModel(modelPath string) *Model {
 }
 
 func (m *Model) WithTexture(texturePath string) *Model {
-	m.Materials.GetMap(rl.MapDiffuse).Texture = rl.LoadTexture(texturePath)
+	texture := rl.LoadTexture(texturePath)
+	materials := m.GetMaterials()
+	for i := range materials {
+		materials[i].GetMap(rl.MapAlbedo).Texture = texture
+	}
 	return m
 }

@@ -3,6 +3,7 @@ package components
 type NetworkIdentity struct {
 	ID       string
 	Nickname string
+	Model    string
 	IsLocal  bool
 }
 

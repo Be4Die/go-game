@@ -147,10 +147,10 @@ func (m *Manager) handleClientMessage(client *Client, message []byte) {
 		}
 
 		client.nickname = joinMsg.Nickname
-		m.world.AddPlayer(client.id, joinMsg.Nickname)
+		m.world.AddPlayer(client.id, joinMsg.Nickname, joinMsg.Model)
 
-		m.broadcastNewPlayer(client.id, joinMsg.Nickname)
-		log.Printf("Player joined: %s (%s)", joinMsg.Nickname, client.id)
+		m.broadcastNewPlayer(client.id, joinMsg.Nickname, joinMsg.Model)
+		log.Printf("Player joined: %s (%s) model=%s", joinMsg.Nickname, client.id, joinMsg.Model)
 
 	case shared.MessageTypeInput:
 		var inputMsg shared.InputMessage
@@ -276,10 +276,11 @@ func (m *Manager) broadcastWorldState() {
 	}
 }
 
-func (m *Manager) broadcastNewPlayer(playerID, nickname string) {
+func (m *Manager) broadcastNewPlayer(playerID, nickname, model string) {
 	newPlayerMsg := shared.NewPlayerMessage{
 		PlayerID: playerID,
 		Nickname: nickname,
+		Model:    model,
 	}
 
 	data, _ := json.Marshal(newPlayerMsg)

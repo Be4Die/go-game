@@ -329,6 +329,7 @@ func (n *Network) updateRemotePlayers(players []shared.PlayerState) {
 			existing.Position = player.Position
 			existing.Rotation = player.Rotation
 			existing.Animation = player.Animation
+			existing.Model = player.Model
 			existing.LastUpdate = time.Now()
 			existing.IsActive = true
 		} else {

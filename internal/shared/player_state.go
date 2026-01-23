@@ -5,6 +5,7 @@ import "time"
 type PlayerState struct {
 	PlayerID   string    `json:"playerId"`
 	Nickname   string    `json:"nickname"`
+	Model      string    `json:"model"`
 	Position   Vector3   `json:"position"`
 	Rotation   float32   `json:"rotation"`
 	Animation  int32     `json:"animation"`
