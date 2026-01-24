@@ -421,11 +421,6 @@ func (gr *GameRenderer) createNicknameTexture(nickname string) rl.RenderTexture2
 	rl.BeginTextureMode(rt)
 	rl.ClearBackground(rl.Blank)
 
-	bgColor := rl.NewColor(0, 0, 0, 180)
-	rect := rl.NewRectangle(float32(padding/2), float32(padding/2),
-		float32(width-padding), float32(height-padding))
-	rl.DrawRectangleRounded(rect, 0.3, 10, bgColor)
-
 	textPos := rl.NewVector2(
 		float32(width)/2-textSize.X/2,
 		float32(height)/2-textSize.Y/2,
