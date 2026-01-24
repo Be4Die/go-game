@@ -20,6 +20,7 @@ type PlayerSystem struct {
 	currentYaw        float32
 	targetYaw         float32
 	lastInputSendTime time.Time
+	accumulatedTime   float32
 	inputBuffer       []shared.InputMessage
 	lastServerState   *shared.PlayerState
 }
@@ -31,6 +32,7 @@ func NewPlayerSystem(container *client.DataContainer) *PlayerSystem {
 		jumpVelocity:      0,
 		isJumping:         false,
 		lastInputSendTime: time.Now(),
+		accumulatedTime:   0,
 		inputBuffer:       make([]shared.InputMessage, 0),
 	}
 }
@@ -46,23 +48,23 @@ func (ps *PlayerSystem) Process(em ecs.EntityManager) (state int) {
 		ps.spawned = true
 	}
 
+	// Accumulate time for input synchronization
+	ps.accumulatedTime += rl.GetFrameTime()
+
 	for _, entity := range em.FilterByMask(components.MaskPlayerController | components.MaskTransform | components.MaskAnimator) {
 		player := entity.Get(components.MaskPlayerController).(*components.PlayerController)
 		transform := entity.Get(components.MaskTransform).(*components.Transform)
 		animator := entity.Get(components.MaskAnimator).(*components.Animator)
-
-		// Optional: Update Identity nickname if needed, but it's usually static
-		// identity := entity.Get(components.MaskNetworkIdentity).(*components.NetworkIdentity)
 
 		isMoving := ps.processMovement(player, transform)
 		ps.processJump(player, transform)
 		ps.updateAnimationState(animator, isMoving)
 		ps.updateCameraPosition(transform)
 
-		// Отправляем ввод на сервер
+		// Send input to server
 		ps.sendInputToServer(transform, animator)
 
-		// Применяем предикцию
+		// Apply prediction
 		ps.applyPrediction(transform)
 	}
 
@@ -112,11 +114,12 @@ func (ps *PlayerSystem) sendInputToServer(transform *components.Transform, anima
 	}
 
 	now := time.Now()
+	// Send input approx every 16ms (60hz), but include exact accumulated time
 	if now.Sub(ps.lastInputSendTime) < 16*time.Millisecond {
 		return
 	}
 
-	// Собираем ввод
+	// Collect input
 	inputKeys := shared.InputKeys{
 		Forward:  rl.IsKeyDown(rl.KeyW),
 		Backward: rl.IsKeyDown(rl.KeyS),
@@ -132,27 +135,29 @@ func (ps *PlayerSystem) sendInputToServer(transform *components.Transform, anima
 		Rotation:  transform.GetYaw(),
 		Animation: animator.CurrentAnim,
 		Keys:      inputKeys,
+		DeltaTime: ps.accumulatedTime, // Send the exact time elapsed since last packet
 		Timestamp: now.UnixNano() / int64(time.Millisecond),
 	}
 
-	// Сохраняем в буфер для предикции
+	// Reset accumulated time after sending
+	ps.accumulatedTime = 0
+
+	// Store in buffer for prediction
 	ps.inputBuffer = append(ps.inputBuffer, inputMsg)
 	if len(ps.inputBuffer) > 60 {
 		ps.inputBuffer = ps.inputBuffer[1:]
 	}
 
-	// Отправляем на сервер
+	// Send to server
 	if err := ps.container.Network.SendInput(inputMsg); err != nil {
-		// Обработка ошибки
+		// Handle error
 	}
 
 	ps.lastInputSendTime = now
 }
 
 func (ps *PlayerSystem) applyPrediction(transform *components.Transform) {
-	// Предикция - предсказываем положение на основе последнего известного состояния сервера
-	// и буфера ввода. Это упрощенная версия.
-	// Здесь можно добавить логику согласования с сервером
+	// Prediction logic placeholder
 }
 
 func (ps *PlayerSystem) processMovement(player *components.PlayerController, transform *components.Transform) bool {
@@ -165,7 +170,7 @@ func (ps *PlayerSystem) processMovement(player *components.PlayerController, tra
 
 	speed := ps.calculateMovementSpeed(player.Speed, isMoving)
 
-	// Нормализуем вектор направления
+	// Normalize direction vector
 	length := float32(math.Sqrt(float64(moveDirection.X*moveDirection.X + moveDirection.Y*moveDirection.Y + moveDirection.Z*moveDirection.Z)))
 	if length > 0 {
 		moveDirection.X /= length

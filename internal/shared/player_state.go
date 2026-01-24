@@ -13,6 +13,7 @@ type PlayerState struct {
 	IsGrounded bool      `json:"isGrounded"`
 	IsJumping  bool      `json:"isJumping"`
 	LastInput  InputKeys `json:"-"`
+	InputBuffer []InputMessage `json:"-"`
 	JoinedAt   time.Time `json:"joinedAt"`
 	LastUpdate time.Time `json:"lastUpdate"`
 	IsActive   bool      `json:"isActive"`

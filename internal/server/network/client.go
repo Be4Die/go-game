@@ -82,25 +82,27 @@ func (c *Client) writePump() {
 	for {
 		select {
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			now := time.Now()
+			c.conn.SetWriteDeadline(now.Add(writeWait))
 			if !ok {
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-
-			w, err := c.conn.NextWriter(websocket.TextMessage)
-			if err != nil {
+			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				return
 			}
-			w.Write(message)
 
-			n := len(c.send)
-			for i := 0; i < n; i++ {
-				w.Write(<-c.send)
-			}
-
-			if err := w.Close(); err != nil {
-				return
+		drain:
+			for {
+				select {
+				case next := <-c.send:
+					c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+					if err := c.conn.WriteMessage(websocket.TextMessage, next); err != nil {
+						return
+					}
+				default:
+					break drain
+				}
 			}
 
 		case <-ticker.C:
@@ -108,7 +110,6 @@ func (c *Client) writePump() {
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
-			c.lastPing = time.Now()
 
 			if time.Since(c.lastPing) > pongWait*2 {
 				log.Printf("Client %s seems dead, disconnecting", c.id)

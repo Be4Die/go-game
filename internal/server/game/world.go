@@ -2,6 +2,7 @@ package game
 
 import (
 	"game/internal/shared"
+	"math"
 	"sync"
 	"time"
 )
@@ -24,18 +25,19 @@ func (w *World) AddPlayer(id, nickname, model string) *shared.PlayerState {
 	defer w.mu.Unlock()
 
 	player := &shared.PlayerState{
-		PlayerID:   id,
-		Nickname:   nickname,
-		Model:      model,
-		Position:   shared.Vector3{X: 0, Y: 0, Z: 0},
-		Rotation:   0,
-		Velocity:   shared.Vector3{X: 0, Y: 0, Z: 0},
-		Animation:  1,
-		IsGrounded: true,
-		IsJumping:  false,
-		JoinedAt:   time.Now(),
-		LastUpdate: time.Now(),
-		IsActive:   true,
+		PlayerID:    id,
+		Nickname:    nickname,
+		Model:       model,
+		Position:    shared.Vector3{X: 0, Y: 0, Z: 0},
+		Rotation:    0,
+		Velocity:    shared.Vector3{X: 0, Y: 0, Z: 0},
+		Animation:   1,
+		IsGrounded:  true,
+		IsJumping:   false,
+		JoinedAt:    time.Now(),
+		LastUpdate:  time.Now(),
+		IsActive:    true,
+		InputBuffer: make([]shared.InputMessage, 0),
 	}
 	w.players[id] = player
 	return player
@@ -73,10 +75,8 @@ func (w *World) ProcessInput(playerID string, input shared.InputMessage) {
 		return
 	}
 
-	player.LastInput = input.Keys
-	player.Rotation = input.Rotation
-	player.Animation = input.Animation
-	// In authoritative server, we might validate position, but here we trust input rotation/anim
+	// Buffer the input instead of overwriting state immediately
+	player.InputBuffer = append(player.InputBuffer, input)
 }
 
 func (w *World) Update(deltaTime float32) {
@@ -88,9 +88,29 @@ func (w *World) Update(deltaTime float32) {
 			continue
 		}
 
-		if !player.LastInput.IsEmpty() {
-			w.applyPhysics(player, player.LastInput, deltaTime)
-			player.LastInput = shared.InputKeys{}
+		// Process all buffered inputs
+		if len(player.InputBuffer) > 0 {
+			for _, input := range player.InputBuffer {
+				// Apply state from input
+				player.Rotation = input.Rotation
+				player.Animation = input.Animation
+				player.LastInput = input.Keys // Store for debug/reference
+
+				// Use client-provided delta time for precise synchronization
+				// Clamp to reasonable limits to prevent speed hacking or huge jumps
+				dt := input.DeltaTime
+				if dt > 0.1 { // Max 100ms per packet to prevent teleportation
+					dt = 0.1
+				}
+				if dt <= 0 { // Fallback if something is wrong
+					dt = 0.016
+				}
+
+				// Apply physics for this input slice
+				w.applyPhysics(player, input.Keys, dt)
+			}
+			// Clear buffer after processing
+			player.InputBuffer = player.InputBuffer[:0]
 		}
 	}
 }
@@ -101,36 +121,70 @@ func (w *World) applyPhysics(player *shared.PlayerState, input shared.InputKeys,
 		speed = 10.0
 	}
 
+	// Calculate movement vector
+	moveX := float32(0.0)
+	moveZ := float32(0.0)
+
 	if input.Forward {
-		player.Position.Z -= speed * deltaTime
+		moveZ -= 1
 	}
 	if input.Backward {
-		player.Position.Z += speed * deltaTime
+		moveZ += 1
 	}
 	if input.Left {
-		player.Position.X -= speed * deltaTime
+		moveX -= 1
 	}
 	if input.Right {
-		player.Position.X += speed * deltaTime
+		moveX += 1
 	}
 
+	// Normalize vector to prevent diagonal speed boost
+	length := float32(math.Sqrt(float64(moveX*moveX + moveZ*moveZ)))
+	if length > 0 {
+		moveX /= length
+		moveZ /= length
+	}
+
+	// Store horizontal velocity (units/sec) for client-side extrapolation
+	if length > 0 {
+		player.Velocity.X = moveX * speed
+		player.Velocity.Z = moveZ * speed
+	} else {
+		player.Velocity.X = 0
+		player.Velocity.Z = 0
+	}
+
+	// Apply movement
+	player.Position.X += moveX * speed * deltaTime
+	player.Position.Z += moveZ * speed * deltaTime
+
+	// Jump Logic
 	if input.Jump && !player.IsJumping && player.IsGrounded {
 		player.Velocity.Y = 10.0
 		player.IsJumping = true
+		player.IsGrounded = false // Immediately un-ground to prevent double jumps in same tick
 	}
 
+	// Gravity and Vertical Physics
 	player.Velocity.Y -= w.gravity * deltaTime
 	player.Position.Y += player.Velocity.Y * deltaTime
 
+	// Ground Collision
 	if player.Position.Y < 0 {
 		player.Position.Y = 0
 		player.Velocity.Y = 0
 		player.IsJumping = false
 		player.IsGrounded = true
+	} else {
+		// If above ground, we are not grounded (unless we just jumped)
+		if player.Position.Y > 0 {
+			player.IsGrounded = false
+		}
 	}
 
 	player.LastUpdate = time.Now()
 
+	// Update Animation State based on input (server authoritative animation state)
 	if input.Forward || input.Backward || input.Left || input.Right {
 		player.Animation = 2 // Walk
 		if input.Sprint {

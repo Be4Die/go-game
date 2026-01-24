@@ -1,7 +1,10 @@
 package client
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"log"
 	"sync"
 	"time"
@@ -14,7 +17,7 @@ import (
 const (
 	clientWriteWait  = 10 * time.Second
 	clientPongWait   = 60 * time.Second
-	clientPingPeriod = (clientPongWait * 9) / 10
+	clientPingPeriod = 2 * time.Second
 	clientMaxMessage = 16384
 )
 
@@ -29,26 +32,22 @@ type Network struct {
 
 	heartbeatTicker *time.Ticker
 	lastPong        time.Time
+	lastPingSent    time.Time
 	latency         time.Duration
 	inputSendTicker *time.Ticker
 }
 
 func NewNetwork(conn *websocket.Conn, container *DataContainer) *Network {
 	n := &Network{
-		conn:        conn,
-		sendChan:    make(chan []byte, 256),
-		receiveChan: make(chan []byte, 256),
-		isConnected: true,
-		container:   container,
-		lastPong:    time.Now(),
-		latency:     0,
+		conn:         conn,
+		sendChan:     make(chan []byte, 256),
+		receiveChan:  make(chan []byte, 256),
+		isConnected:  true,
+		container:    container,
+		lastPong:     time.Now(),
+		lastPingSent: time.Now(),
+		latency:      0,
 	}
-
-	conn.SetPongHandler(func(appData string) error {
-		n.lastPong = time.Now()
-		n.latency = time.Since(n.lastPong)
-		return nil
-	})
 
 	go n.writePump()
 	go n.readPump()
@@ -128,6 +127,9 @@ func (n *Network) writePump() {
 			}
 
 		case <-ticker.C:
+			n.mu.Lock()
+			n.lastPingSent = time.Now()
+			n.mu.Unlock()
 			n.conn.SetWriteDeadline(time.Now().Add(clientWriteWait))
 			if err := n.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				log.Printf("WebSocket ping error: %v", err)
@@ -150,8 +152,15 @@ func (n *Network) readPump() {
 	n.conn.SetReadLimit(clientMaxMessage)
 	n.conn.SetReadDeadline(time.Now().Add(clientPongWait))
 	n.conn.SetPongHandler(func(appData string) error {
-		n.conn.SetReadDeadline(time.Now().Add(clientPongWait))
-		n.lastPong = time.Now()
+		now := time.Now()
+		n.conn.SetReadDeadline(now.Add(clientPongWait))
+
+		n.mu.Lock()
+		n.lastPong = now
+		if !n.lastPingSent.IsZero() {
+			n.latency = now.Sub(n.lastPingSent)
+		}
+		n.mu.Unlock()
 		return nil
 	})
 
@@ -230,12 +239,21 @@ func (n *Network) processMessages() {
 }
 
 func (n *Network) handleMessage(data []byte) {
-	var msg shared.Message
-	if err := json.Unmarshal(data, &msg); err != nil {
-		log.Printf("Error unmarshaling message: %v", err)
-		return
+	dec := json.NewDecoder(bytes.NewReader(data))
+	for {
+		var msg shared.Message
+		if err := dec.Decode(&msg); err != nil {
+			if errors.Is(err, io.EOF) {
+				return
+			}
+			log.Printf("Error unmarshaling message: %v", err)
+			return
+		}
+		n.handleSingleMessage(msg)
 	}
+}
 
+func (n *Network) handleSingleMessage(msg shared.Message) {
 	switch msg.Type {
 	case shared.MessageTypeWelcome:
 		var welcomeMsg shared.WelcomeMessage
@@ -329,6 +347,9 @@ func (n *Network) updateRemotePlayers(players []shared.PlayerState) {
 			existing.Position = player.Position
 			existing.Rotation = player.Rotation
 			existing.Animation = player.Animation
+			existing.Velocity = player.Velocity
+			existing.IsGrounded = player.IsGrounded
+			existing.IsJumping = player.IsJumping
 			existing.Model = player.Model
 			existing.LastUpdate = time.Now()
 			existing.IsActive = true
@@ -424,5 +445,7 @@ func (n *Network) IsConnected() bool {
 }
 
 func (n *Network) GetLatency() time.Duration {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
 	return n.latency
 }

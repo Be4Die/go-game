@@ -41,6 +41,7 @@ type InputMessage struct {
 	Rotation  float32   `json:"rotation"`
 	Animation int32     `json:"animation"`
 	Keys      InputKeys `json:"keys"`
+	DeltaTime float32   `json:"deltaTime"`
 	Timestamp int64     `json:"timestamp"`
 }
 

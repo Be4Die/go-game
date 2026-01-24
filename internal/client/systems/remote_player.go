@@ -76,6 +76,11 @@ func (r *RemotePlayerSystem) Process(em ecs.EntityManager) (state int) {
 
 func (r *RemotePlayerSystem) createRemoteEntity(player *shared.PlayerState) *ecs.Entity {
 	pos := rl.NewVector3(player.Position.X, player.Position.Y, player.Position.Z)
+	if r.container.Network != nil {
+		oneWay := float32(r.container.Network.GetLatency().Seconds()) * 0.5
+		pos.X += player.Velocity.X * oneWay
+		pos.Z += player.Velocity.Z * oneWay
+	}
 
 	transform := &components.Transform{
 		Position: pos,
@@ -102,7 +107,7 @@ func (r *RemotePlayerSystem) createRemoteEntity(player *shared.PlayerState) *ecs
 		&components.Interpolation{
 			TargetPosition: pos,
 			TargetRotation: player.Rotation,
-			Speed:          10.0,
+			Speed:          20.0,
 		},
 	})
 }
@@ -112,7 +117,13 @@ func (r *RemotePlayerSystem) updateRemoteEntity(entity ecs.Entity, player *share
 	interp := entity.Get(components.MaskInterpolation)
 	if interp != nil {
 		i := interp.(*components.Interpolation)
-		i.TargetPosition = rl.NewVector3(player.Position.X, player.Position.Y, player.Position.Z)
+		pos := rl.NewVector3(player.Position.X, player.Position.Y, player.Position.Z)
+		if r.container.Network != nil {
+			oneWay := float32(r.container.Network.GetLatency().Seconds()) * 0.5
+			pos.X += player.Velocity.X * oneWay
+			pos.Z += player.Velocity.Z * oneWay
+		}
+		i.TargetPosition = pos
 		i.TargetRotation = player.Rotation
 	}
 
