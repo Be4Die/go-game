@@ -264,6 +264,7 @@ func (n *Network) handleSingleMessage(msg shared.Message) {
 
 		log.Printf("Connected to server: %s", welcomeMsg.Message)
 		n.container.PlayerID = welcomeMsg.PlayerID
+		n.container.WorldSeed = welcomeMsg.Seed
 
 	case shared.MessageTypeWorldState:
 		var worldState shared.WorldStateMessage

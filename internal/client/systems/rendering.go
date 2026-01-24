@@ -47,6 +47,9 @@ func (r *RenderingSystem) Process(em ecs.EntityManager) (state int) {
 		r.menuRenderer.Process()
 
 	case client.GameStateRunning:
+		if r.container.WorldSeed != 0 && !r.gameRenderer.IsWorldLoaded() {
+			r.gameRenderer.LoadWorld(r.container.WorldSeed)
+		}
 		r.gameRenderer.Process(em)
 
 	}

@@ -332,6 +332,7 @@ func ServeWs(m *Manager, w http.ResponseWriter, r *http.Request) {
 	welcomeMsg := shared.WelcomeMessage{
 		PlayerID: client.id,
 		Message:  "Welcome to the game server",
+		Seed:     m.world.Seed,
 	}
 
 	data, _ := json.Marshal(welcomeMsg)

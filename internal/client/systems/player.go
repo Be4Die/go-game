@@ -23,6 +23,11 @@ type PlayerSystem struct {
 	accumulatedTime   float32
 	inputBuffer       []shared.InputMessage
 	lastServerState   *shared.PlayerState
+	worldSeed         int64
+	chunks            map[int64][]shared.StaticObject
+	centerChunkX      int32
+	centerChunkZ      int32
+	collisionRadius   int32
 }
 
 func NewPlayerSystem(container *client.DataContainer) *PlayerSystem {
@@ -34,6 +39,8 @@ func NewPlayerSystem(container *client.DataContainer) *PlayerSystem {
 		lastInputSendTime: time.Now(),
 		accumulatedTime:   0,
 		inputBuffer:       make([]shared.InputMessage, 0),
+		chunks:            make(map[int64][]shared.StaticObject),
+		collisionRadius:   2,
 	}
 }
 
@@ -41,6 +48,13 @@ func (ps *PlayerSystem) Process(em ecs.EntityManager) (state int) {
 	if ps.container.GameState != client.GameStateRunning {
 		ps.spawned = false
 		return ecs.StateEngineContinue
+	}
+
+	if ps.container.WorldSeed != 0 && ps.worldSeed != ps.container.WorldSeed {
+		ps.worldSeed = ps.container.WorldSeed
+		ps.chunks = make(map[int64][]shared.StaticObject)
+		ps.centerChunkX = 0
+		ps.centerChunkZ = 0
 	}
 
 	if !ps.spawned {
@@ -215,8 +229,87 @@ func (ps *PlayerSystem) calculateMovementSpeed(baseSpeed float32, isMoving bool)
 
 func (ps *PlayerSystem) applyMovement(transform *components.Transform, direction rl.Vector3, speed float32) {
 	frameTime := rl.GetFrameTime()
-	transform.Position.X += direction.X * speed * frameTime
-	transform.Position.Z += direction.Z * speed * frameTime
+
+	if ps.worldSeed != 0 {
+		cx := shared.ChunkCoord(transform.Position.X)
+		cz := shared.ChunkCoord(transform.Position.Z)
+		if cx != ps.centerChunkX || cz != ps.centerChunkZ {
+			ps.centerChunkX = cx
+			ps.centerChunkZ = cz
+			ps.ensureChunksLoaded()
+		}
+		if len(ps.chunks) == 0 {
+			ps.ensureChunksLoaded()
+		}
+	}
+
+	nextX := transform.Position.X + direction.X*speed*frameTime
+	nextZ := transform.Position.Z + direction.Z*speed*frameTime
+
+	playerRadius := float32(0.5)
+
+	if !ps.collides(nextX, nextZ, playerRadius) {
+		transform.Position.X = nextX
+		transform.Position.Z = nextZ
+		return
+	}
+
+	if !ps.collides(nextX, transform.Position.Z, playerRadius) {
+		transform.Position.X = nextX
+		return
+	}
+
+	if !ps.collides(transform.Position.X, nextZ, playerRadius) {
+		transform.Position.Z = nextZ
+		return
+	}
+}
+
+func (ps *PlayerSystem) ensureChunksLoaded() {
+	required := make(map[int64]struct{})
+	for dx := -ps.collisionRadius; dx <= ps.collisionRadius; dx++ {
+		for dz := -ps.collisionRadius; dz <= ps.collisionRadius; dz++ {
+			cx := ps.centerChunkX + dx
+			cz := ps.centerChunkZ + dz
+			k := shared.ChunkKey(cx, cz)
+			required[k] = struct{}{}
+			if _, ok := ps.chunks[k]; !ok {
+				ps.chunks[k] = shared.GenerateChunk(ps.worldSeed, cx, cz)
+			}
+		}
+	}
+
+	for k := range ps.chunks {
+		if _, ok := required[k]; !ok {
+			delete(ps.chunks, k)
+		}
+	}
+}
+
+func (ps *PlayerSystem) collides(x, z, radius float32) bool {
+	if len(ps.chunks) == 0 {
+		return false
+	}
+
+	cx := shared.ChunkCoord(x)
+	cz := shared.ChunkCoord(z)
+
+	for dx := int32(-1); dx <= 1; dx++ {
+		for dz := int32(-1); dz <= 1; dz++ {
+			k := shared.ChunkKey(cx+dx, cz+dz)
+			objs, ok := ps.chunks[k]
+			if !ok {
+				continue
+			}
+			for _, obj := range objs {
+				if shared.CollidesPointWithStaticObjectXZ(obj, x, z, radius) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 func (ps *PlayerSystem) updatePlayerRotation(transform *components.Transform, direction rl.Vector3) {

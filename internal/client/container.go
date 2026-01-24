@@ -28,6 +28,7 @@ type DataContainer struct {
 	Players        map[string]*shared.PlayerState
 	NetworkError   string
 	Mu             sync.RWMutex
+	WorldSeed      int64
 
 	// Статистика сети
 	LastPacketTime time.Time

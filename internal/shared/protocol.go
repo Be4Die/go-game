@@ -23,6 +23,7 @@ type Message struct {
 type WelcomeMessage struct {
 	PlayerID string `json:"playerId"`
 	Message  string `json:"message"`
+	Seed     int64  `json:"seed"`
 }
 
 type JoinMessage struct {

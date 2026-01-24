@@ -11,13 +11,22 @@ type World struct {
 	players map[string]*shared.PlayerState
 	mu      sync.RWMutex
 	gravity float32
+	Seed    int64
+	chunks  map[int64][]shared.StaticObject
 }
 
 func NewWorld() *World {
+	seed := time.Now().UnixNano()
 	return &World{
 		players: make(map[string]*shared.PlayerState),
 		gravity: 20.0,
+		Seed:    seed,
+		chunks:  make(map[int64][]shared.StaticObject),
 	}
+}
+
+func (w *World) GetSeed() int64 {
+	return w.Seed
 }
 
 func (w *World) AddPlayer(id, nickname, model string) *shared.PlayerState {
@@ -83,6 +92,8 @@ func (w *World) Update(deltaTime float32) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	w.ensureChunksLoadedLocked()
+
 	for _, player := range w.players {
 		if !player.IsActive {
 			continue
@@ -113,6 +124,53 @@ func (w *World) Update(deltaTime float32) {
 			player.InputBuffer = player.InputBuffer[:0]
 		}
 	}
+}
+
+func (w *World) ensureChunksLoadedLocked() {
+	const radiusChunks = int32(2)
+	required := make(map[int64]struct{})
+
+	for _, p := range w.players {
+		cx := shared.ChunkCoord(p.Position.X)
+		cz := shared.ChunkCoord(p.Position.Z)
+		for dx := -radiusChunks; dx <= radiusChunks; dx++ {
+			for dz := -radiusChunks; dz <= radiusChunks; dz++ {
+				k := shared.ChunkKey(cx+dx, cz+dz)
+				required[k] = struct{}{}
+				if _, ok := w.chunks[k]; !ok {
+					w.chunks[k] = shared.GenerateChunk(w.Seed, cx+dx, cz+dz)
+				}
+			}
+		}
+	}
+
+	for k := range w.chunks {
+		if _, ok := required[k]; !ok {
+			delete(w.chunks, k)
+		}
+	}
+}
+
+func (w *World) checkCollision(pos shared.Vector3, radius float32) bool {
+	cx := shared.ChunkCoord(pos.X)
+	cz := shared.ChunkCoord(pos.Z)
+
+	for dx := int32(-1); dx <= 1; dx++ {
+		for dz := int32(-1); dz <= 1; dz++ {
+			k := shared.ChunkKey(cx+dx, cz+dz)
+			objs, ok := w.chunks[k]
+			if !ok {
+				continue
+			}
+			for _, obj := range objs {
+				if shared.CollidesPointWithStaticObjectXZ(obj, pos.X, pos.Z, radius) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 func (w *World) applyPhysics(player *shared.PlayerState, input shared.InputKeys, deltaTime float32) {
@@ -154,9 +212,23 @@ func (w *World) applyPhysics(player *shared.PlayerState, input shared.InputKeys,
 		player.Velocity.Z = 0
 	}
 
-	// Apply movement
-	player.Position.X += moveX * speed * deltaTime
-	player.Position.Z += moveZ * speed * deltaTime
+	// Apply movement with collision detection
+	nextX := player.Position.X + moveX*speed*deltaTime
+	nextZ := player.Position.Z + moveZ*speed*deltaTime
+	playerRadius := float32(0.5)
+
+	if !w.checkCollision(shared.Vector3{X: nextX, Y: player.Position.Y, Z: nextZ}, playerRadius) {
+		player.Position.X = nextX
+		player.Position.Z = nextZ
+	} else {
+		// Try sliding along X
+		if !w.checkCollision(shared.Vector3{X: nextX, Y: player.Position.Y, Z: player.Position.Z}, playerRadius) {
+			player.Position.X = nextX
+		} else if !w.checkCollision(shared.Vector3{X: player.Position.X, Y: player.Position.Y, Z: nextZ}, playerRadius) {
+			// Try sliding along Z
+			player.Position.Z = nextZ
+		}
+	}
 
 	// Jump Logic
 	if input.Jump && !player.IsJumping && player.IsGrounded {
