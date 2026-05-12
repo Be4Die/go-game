@@ -13,7 +13,6 @@ import (
 
 type MenuRenderer struct {
 	inputText string
-	editMode  bool
 	container *client.DataContainer
 
 	models        []rl.Model
@@ -38,7 +37,6 @@ type MenuRenderer struct {
 func NewMenuRenderer(container *client.DataContainer) *MenuRenderer {
 	return &MenuRenderer{
 		inputText: "Player",
-		editMode:  false,
 		container: container,
 		camera: rl.Camera3D{
 			Position:   rl.NewVector3(0.0, 3.0, 8.0),
@@ -249,13 +247,13 @@ func (mr *MenuRenderer) drawUI() {
 
 	title := "Select Character"
 	titleWidth := rl.MeasureText(title, 40)
-	rl.DrawText(title, int32((screenWidth-float32(titleWidth))/2), 50, 40, rl.DarkGray)
+	rl.DrawText(title, int32((screenWidth-float32(titleWidth))/2), 30, 40, rl.DarkGray)
 
 	status := fmt.Sprintf("Characters: %d", len(mr.models))
-	rl.DrawText(status, 10, 50, 20, rl.DarkGray)
+	rl.DrawText(status, 10, 30, 20, rl.DarkGray)
 	if len(mr.modelPaths) > 0 {
 		current := filepath.Base(mr.modelPaths[mr.selectedIndex])
-		rl.DrawText(current, 10, 75, 20, rl.DarkGray)
+		rl.DrawText(current, 10, 55, 20, rl.DarkGray)
 	}
 
 	arrowY := float32(screenHeight)/2 - 30
@@ -278,22 +276,51 @@ func (mr *MenuRenderer) drawUI() {
 	}
 
 	textBoxWidth := float32(400)
-	textBoxHeight := float32(60)
+	textBoxHeight := float32(50)
 	textBoxX := (screenWidth - textBoxWidth) / 2
-	textBoxY := screenHeight - 200
 
-	rl.DrawText("Nickname:", int32(textBoxX), int32(textBoxY-30), 25, rl.DarkGray)
-	if raygui.TextBox(rl.NewRectangle(textBoxX, textBoxY, textBoxWidth, textBoxHeight), &mr.inputText, 32, mr.editMode) {
-		mr.editMode = !mr.editMode
+	// Поле Nickname
+	nicknameY := screenHeight - 180
+	rl.DrawText("Nickname:", int32(textBoxX), int32(nicknameY-25), 20, rl.DarkGray)
+	nicknameEdit := raygui.TextBox(rl.NewRectangle(textBoxX, nicknameY, textBoxWidth, textBoxHeight), &mr.inputText, 32, true)
+	if nicknameEdit {
+		// Поле активно
 	}
 
-	buttonY := textBoxY + textBoxHeight + 20
-	if raygui.Button(rl.NewRectangle(textBoxX, buttonY, textBoxWidth, textBoxHeight), "PLAY") {
-		modelPath := "assets/characters/character-male-c.glb"
-		if len(mr.modelPaths) > 0 {
-			modelPath = mr.modelPaths[mr.selectedIndex]
-			modelPath = strings.ReplaceAll(modelPath, "\\", "/")
+	// Статус подключения (если есть)
+	isConnecting := mr.container.GameState == client.GameStateConnecting
+	hasError := mr.container.GameState == client.GameStateError && mr.container.NetworkError != ""
+
+	buttonY := nicknameY + textBoxHeight + 20
+	buttonLabel := "PLAY"
+	if isConnecting {
+		buttonLabel = "CONNECTING..."
+	}
+
+	// Кнопка PLAY — блокируем во время подключения
+	if isConnecting {
+		raygui.Button(rl.NewRectangle(textBoxX, buttonY, textBoxWidth, 55), buttonLabel)
+	} else {
+		if raygui.Button(rl.NewRectangle(textBoxX, buttonY, textBoxWidth, 55), buttonLabel) {
+			modelPath := "assets/characters/character-male-c.glb"
+			if len(mr.modelPaths) > 0 {
+				modelPath = mr.modelPaths[mr.selectedIndex]
+				modelPath = strings.ReplaceAll(modelPath, "\\", "/")
+			}
+			// Запускаем подключение в отдельной горутине, чтобы не блокировать UI
+			go client.GameBoot(mr.container, mr.inputText, modelPath)
 		}
-		client.GameBoot(mr.container, mr.inputText, modelPath)
+	}
+
+	// Отображаем статус подключения
+	statusY := buttonY + 70
+	if isConnecting && mr.container.ConnectionStatus != "" {
+		statusText := mr.container.ConnectionStatus
+		statusWidth := rl.MeasureText(statusText, 20)
+		rl.DrawText(statusText, int32((screenWidth-float32(statusWidth))/2), int32(statusY), 20, rl.DarkBlue)
+	} else if hasError {
+		errText := mr.container.NetworkError
+		errWidth := rl.MeasureText(errText, 20)
+		rl.DrawText(errText, int32((screenWidth-float32(errWidth))/2), int32(statusY), 20, rl.Red)
 	}
 }

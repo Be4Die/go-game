@@ -21,12 +21,15 @@ func main() {
 	em := ecs.NewEntityManager()
 	sm := ecs.NewSystemManager()
 
+	cfg := client.LoadConfig()
+
 	container := client.DataContainer{
 		GameState:     client.GameStateMenu,
 		Camera:        &camera,
 		EntityManager: em,
 		SystemManager: sm,
 		Players:       make(map[string]*shared.PlayerState),
+		Config:        cfg,
 	}
 
 	sm.Add(systems.NewRenderingSystem(&container))

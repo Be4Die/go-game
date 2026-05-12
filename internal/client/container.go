@@ -17,18 +17,20 @@ const (
 )
 
 type DataContainer struct {
-	GameState      int
-	PlayerNickname string
-	PlayerModel    string
-	PlayerID       string
-	Camera         *rl.Camera
-	EntityManager  ecs.EntityManager
-	SystemManager  ecs.SystemManager
-	Network        *Network
-	Players        map[string]*shared.PlayerState
-	NetworkError   string
-	Mu             sync.RWMutex
-	WorldSeed      int64
+	GameState        int
+	PlayerNickname   string
+	PlayerModel      string
+	PlayerID         string
+	Camera           *rl.Camera
+	EntityManager    ecs.EntityManager
+	SystemManager    ecs.SystemManager
+	Network          *Network
+	Players          map[string]*shared.PlayerState
+	NetworkError     string
+	Mu               sync.RWMutex
+	WorldSeed        int64
+	Config           *ClientConfig
+	ConnectionStatus string // Статус подключения для отображения в меню
 
 	// Статистика сети
 	LastPacketTime time.Time

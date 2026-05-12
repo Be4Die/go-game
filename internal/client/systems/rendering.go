@@ -43,7 +43,8 @@ func (r *RenderingSystem) Process(em ecs.EntityManager) (state int) {
 
 	switch r.container.GameState {
 
-	case client.GameStateMenu:
+	case client.GameStateMenu, client.GameStateConnecting, client.GameStateError:
+		// Меню рисуется и во время подключения, и при ошибке, чтобы показать статус
 		r.menuRenderer.Process()
 
 	case client.GameStateRunning:

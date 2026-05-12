@@ -8,21 +8,44 @@ import (
 )
 
 type World struct {
-	players map[string]*shared.PlayerState
-	mu      sync.RWMutex
-	gravity float32
-	Seed    int64
-	chunks  map[int64][]shared.StaticObject
+	players    map[string]*shared.PlayerState
+	mu         sync.RWMutex
+	gravity    float32
+	Seed       int64
+	chunks     map[int64][]shared.StaticObject
+	MaxPlayers uint32
 }
 
 func NewWorld() *World {
 	seed := time.Now().UnixNano()
 	return &World{
-		players: make(map[string]*shared.PlayerState),
-		gravity: 20.0,
-		Seed:    seed,
-		chunks:  make(map[int64][]shared.StaticObject),
+		players:    make(map[string]*shared.PlayerState),
+		gravity:    20.0,
+		Seed:       seed,
+		chunks:     make(map[int64][]shared.StaticObject),
+		MaxPlayers: 32, // Значение по умолчанию
 	}
+}
+
+// SetMaxPlayers устанавливает максимальное количество игроков
+func (w *World) SetMaxPlayers(max uint32) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.MaxPlayers = max
+}
+
+// PlayerCount возвращает текущее количество игроков
+func (w *World) PlayerCount() uint32 {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return uint32(len(w.players))
+}
+
+// IsFull возвращает true, если сервер заполнен
+func (w *World) IsFull() bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.MaxPlayers > 0 && uint32(len(w.players)) >= w.MaxPlayers
 }
 
 func (w *World) GetSeed() int64 {

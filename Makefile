@@ -1,15 +1,18 @@
 # ====== CONFIG ======
 DIST_DIR       := dist
-CLIENT_DIR     := $(DIST_DIR)\client
-SERVER_DIR     := $(DIST_DIR)\server
+CLIENT_DIR     := $(DIST_DIR)/client
+SERVER_DIR     := $(DIST_DIR)/server
+LINUX_DIR      := $(DIST_DIR)/linux
 
-CLIENT_BIN     := client.exe
-SERVER_BIN     := server.exe
+CLIENT_BIN     := client
+SERVER_BIN     := server
+LINUX_BIN      := server-linux-amd64
+LINUX_TAR      := $(DIST_DIR)/$(LINUX_BIN).tar.gz
 
 MAIN_CLIENT    := ./cmd/client/main.go
 MAIN_SERVER    := ./cmd/server/main.go
 
-.PHONY: all build build-client build-server run run-client run-server clean
+.PHONY: all build build-client build-server build-server-linux dist-server-linux run run-client run-server clean test
 
 # ====== DEFAULT ======
 all: build
@@ -19,61 +22,77 @@ build: build-client build-server
 
 # ====== BUILD CLIENT ======
 build-client:
-	@echo Creating client directory...
-	@cmd /c "if not exist $(CLIENT_DIR) mkdir $(CLIENT_DIR)"
+	@echo "Creating client directory..."
+	@mkdir -p $(CLIENT_DIR)
 
-	@echo Copying lib files to client...
-	@cmd /c "xcopy lib $(CLIENT_DIR)\ /E /I /Y > nul"
+	@echo "Copying lib files to client..."
+	@cp -r lib/* $(CLIENT_DIR)/ 2>/dev/null || true
 
-	@echo Copying assets to client...
-	@cmd /c "xcopy assets $(CLIENT_DIR)\assets\ /E /I /Y > nul"
+	@echo "Copying assets to client..."
+	@cp -r assets $(CLIENT_DIR)/
 
-	@echo Building client binary with CGO...
-	@cmd /c "set CGO_ENABLED=1 && go build -o $(CLIENT_DIR)\$(CLIENT_BIN) $(MAIN_CLIENT)"
+	@echo "Building client binary with CGO..."
+	@CGO_ENABLED=1 go build -o $(CLIENT_DIR)/$(CLIENT_BIN) $(MAIN_CLIENT)
 
-	@echo Client build completed.
+	@echo "Client build completed: $(CLIENT_DIR)/$(CLIENT_BIN)"
 
-# ====== BUILD SERVER ======
+# ====== BUILD SERVER (native) ======
 build-server:
-	@echo Creating server directory...
-	@cmd /c "if not exist $(SERVER_DIR) mkdir $(SERVER_DIR)"
+	@echo "Creating server directory..."
+	@mkdir -p $(SERVER_DIR)
 
-	@echo Copying lib files to server...
-	@cmd /c "xcopy lib $(SERVER_DIR)\ /E /I /Y > nul"
+	@echo "Building server binary..."
+	@CGO_ENABLED=0 go build -o $(SERVER_DIR)/$(SERVER_BIN) $(MAIN_SERVER)
 
-	@echo Building server binary...
-	@go build -o $(SERVER_DIR)\$(SERVER_BIN) $(MAIN_SERVER)
+	@echo "Server build completed: $(SERVER_DIR)/$(SERVER_BIN)"
 
-	@echo Server build completed.
-
+# ====== BUILD SERVER FOR LINUX ======
 build-server-linux:
-	@echo Creating server directory...
-	@cmd /c "if not exist $(SERVER_DIR) mkdir $(SERVER_DIR)"
+	@echo "Creating linux build directory..."
+	@mkdir -p $(LINUX_DIR)
 
-	@echo Building server binary for Linux...
-	@cmd /c "set CGO_ENABLED=0&& set GOOS=linux&& set GOARCH=amd64&& go build -o $(SERVER_DIR)\server_linux $(MAIN_SERVER)"
+	@echo "Building server binary for Linux amd64..."
+	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o $(LINUX_DIR)/$(LINUX_BIN) $(MAIN_SERVER)
 
-	@echo Server Linux build completed.
+	@echo "Linux server build completed: $(LINUX_DIR)/$(LINUX_BIN)"
+
+# ====== CREATE TAR.GZ FOR LINUX SERVER ======
+dist-server-linux: build-server-linux
+	@echo "Creating tar.gz archive..."
+	@tar -czf $(LINUX_TAR) -C $(LINUX_DIR) $(LINUX_BIN)
+	@echo "Archive created: $(LINUX_TAR)"
+	@ls -lh $(LINUX_TAR)
+
+# ====== TEST BUILD ======
+test: dist-server-linux
+	@echo "Testing linux binary..."
+	@file $(LINUX_DIR)/$(LINUX_BIN)
+	@echo "Extract test:"
+	@mkdir -p $(DIST_DIR)/test_extract
+	@tar -xzf $(LINUX_TAR) -C $(DIST_DIR)/test_extract
+	@ls -la $(DIST_DIR)/test_extract/
+	@rm -rf $(DIST_DIR)/test_extract
 
 # ====== RUN BOTH ======
 run: build
-	@echo Starting server in new window...
-	@start "Game Server" cmd /c "$(SERVER_DIR)\$(SERVER_BIN)"
-
-	@echo Starting client in new window...
-	@start "Game Client" cmd /c "$(CLIENT_DIR)\$(CLIENT_BIN)"
+	@echo "Starting server..."
+	@$(SERVER_DIR)/$(SERVER_BIN) &
+	@sleep 1
+	@echo "Starting client..."
+	@cd $(CLIENT_DIR) && ./$(CLIENT_BIN)
 
 # ====== RUN CLIENT ONLY ======
 run-client: build-client
-	@echo Starting client...
-	@start "Game Client" cmd /c "$(CLIENT_DIR)\$(CLIENT_BIN)"
+	@echo "Starting client..."
+	@cd $(CLIENT_DIR) && ./$(CLIENT_BIN)
 
 # ====== RUN SERVER ONLY ======
 run-server: build-server
-	@echo Starting server...
-	@start "Game Server" cmd /c "$(SERVER_DIR)\$(SERVER_BIN)"
+	@echo "Starting server..."
+	@$(SERVER_DIR)/$(SERVER_BIN)
 
 # ====== CLEAN ======
 clean:
-	@echo Cleaning dist directory...
-	-@cmd /c "rmdir /S /Q $(DIST_DIR) > nul 2>&1"
+	@echo "Cleaning dist directory..."
+	@rm -rf $(DIST_DIR)
+	@echo "Clean done."

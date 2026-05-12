@@ -104,6 +104,23 @@ func (m *Manager) Stop() {
 	log.Println("Server stopped")
 }
 
+// SetMaxPlayers устанавливает максимальное количество игроков
+func (m *Manager) SetMaxPlayers(max uint32) {
+	m.world.SetMaxPlayers(max)
+}
+
+// PlayerCount возвращает текущее количество подключенных игроков
+func (m *Manager) PlayerCount() uint32 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return uint32(len(m.clients))
+}
+
+// MaxPlayers возвращает максимальное количество игроков
+func (m *Manager) MaxPlayers() uint32 {
+	return m.world.MaxPlayers
+}
+
 func (m *Manager) healthCheck() {
 	for {
 		select {
@@ -143,6 +160,27 @@ func (m *Manager) handleClientMessage(client *Client, message []byte) {
 		var joinMsg shared.JoinMessage
 		if err := json.Unmarshal(msg.Data, &joinMsg); err != nil {
 			log.Printf("Error unmarshaling join message: %v", err)
+			return
+		}
+
+		// Проверка на заполненность сервера
+		if m.world.IsFull() {
+			errMsg := shared.ErrorMessage{
+				Code:    403,
+				Message: "Server is full",
+			}
+			data, _ := json.Marshal(errMsg)
+			response := shared.Message{
+				Type: shared.MessageTypeError,
+				Data: data,
+			}
+			msgData, _ := json.Marshal(response)
+			client.send <- msgData
+			log.Printf("Player %s rejected: server is full (%d/%d)", joinMsg.Nickname, m.world.PlayerCount(), m.world.MaxPlayers)
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				m.unregister <- client
+			}()
 			return
 		}
 
