@@ -2,7 +2,10 @@ package client
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"time"
 
 	"game/internal/shared"
@@ -10,21 +13,47 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type discoverResponse struct {
+	Servers []serverEndpoint `json:"servers"`
+}
+
+type serverEndpoint struct {
+	InstanceID  string `json:"instance_id"`
+	Address     string `json:"address"`
+	Port        uint32 `json:"port"`
+	Protocol    string `json:"protocol"`
+	PlayerCount uint32 `json:"player_count"`
+	MaxPlayers  uint32 `json:"max_players"`
+}
+
 func GameBoot(container *DataContainer, nickname, model string) {
+	const (
+		gatewayURL = "http://localhost:8080"
+		gameID     = 1
+	)
+
 	container.GameState = GameStateConnecting
 	container.PlayerNickname = nickname
 	container.PlayerModel = model
-	// Players больше не используется, удаляем инициализацию
 
-	// Показываем сообщение о подключении
-	log.Println("Connecting to server...")
+	log.Println("Discovering game server via gateway...")
 
-	// Подключаемся к серверу с таймаутом
+	server, err := discoverServer(gatewayURL, gameID)
+	if err != nil {
+		log.Printf("Failed to discover server: %v", err)
+		container.NetworkError = "Failed to discover server: " + err.Error()
+		container.GameState = GameStateMenu
+		return
+	}
+
+	wsURL := fmt.Sprintf("ws://%s:%d/ws", server.Address, server.Port)
+	log.Printf("Connecting to server at %s (players: %d/%d)...", wsURL, server.PlayerCount, server.MaxPlayers)
+
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
 	}
 
-	conn, _, err := dialer.Dial("ws://localhost:8080/ws", nil)
+	conn, _, err := dialer.Dial(wsURL, nil)
 	if err != nil {
 		log.Printf("Failed to connect to server: %v", err)
 		container.NetworkError = "Failed to connect to server: " + err.Error()
@@ -33,8 +62,6 @@ func GameBoot(container *DataContainer, nickname, model string) {
 	}
 
 	container.Network = NewNetwork(conn, container)
-
-	// Ждем приветственного сообщения
 	time.Sleep(500 * time.Millisecond)
 
 	if !container.Network.IsConnected() {
@@ -43,7 +70,6 @@ func GameBoot(container *DataContainer, nickname, model string) {
 		return
 	}
 
-	// Отправляем сообщение о присоединении
 	joinMsg := shared.JoinMessage{
 		Nickname: nickname,
 		Model:    model,
@@ -81,16 +107,46 @@ func GameBoot(container *DataContainer, nickname, model string) {
 		return
 	}
 
-	// Ждем подтверждения
 	time.Sleep(1000 * time.Millisecond)
 
 	if container.NetworkError != "" {
-		// Ошибка при подключении
 		container.GameState = GameStateMenu
 		container.Network.Close()
 	} else {
-		// Успешное подключение
 		container.GameState = GameStateRunning
 		log.Println("Successfully connected to server")
 	}
+}
+
+func discoverServer(gatewayURL string, gameID int64) (*serverEndpoint, error) {
+	url := fmt.Sprintf("%s/api/v1/games/%d/discover", gatewayURL, gameID)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("discovery request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("gateway returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var discResp discoverResponse
+	if err := json.NewDecoder(resp.Body).Decode(&discResp); err != nil {
+		return nil, fmt.Errorf("failed to decode discovery response: %w", err)
+	}
+
+	if len(discResp.Servers) == 0 {
+		return nil, fmt.Errorf("no servers available for game %d", gameID)
+	}
+
+	for _, s := range discResp.Servers {
+		if s.Protocol == "PROTOCOL_WEBSOCKET" && s.PlayerCount < s.MaxPlayers {
+			return &s, nil
+		}
+	}
+
+	return &discResp.Servers[0], nil
 }

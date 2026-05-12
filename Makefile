@@ -46,6 +46,15 @@ build-server:
 
 	@echo Server build completed.
 
+build-server-linux:
+	@echo Creating server directory...
+	@cmd /c "if not exist $(SERVER_DIR) mkdir $(SERVER_DIR)"
+
+	@echo Building server binary for Linux...
+	@cmd /c "set CGO_ENABLED=0&& set GOOS=linux&& set GOARCH=amd64&& go build -o $(SERVER_DIR)\server_linux $(MAIN_SERVER)"
+
+	@echo Server Linux build completed.
+
 # ====== RUN BOTH ======
 run: build
 	@echo Starting server in new window...
