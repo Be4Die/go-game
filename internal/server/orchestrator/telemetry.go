@@ -6,12 +6,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
 // TelemetryPayload соответствует формату из гайда
 type TelemetryPayload struct {
-	InstanceID  string `json:"instance_id"`
+	InstanceID  int64  `json:"instance_id"`
 	PlayerCount uint32 `json:"player_count"`
 	QueueSize   uint32 `json:"queue_size"`
 	MaxPlayers  uint32 `json:"max_players"`
@@ -20,7 +21,7 @@ type TelemetryPayload struct {
 // Reporter отправляет telemetry на Game Server Node
 type Reporter struct {
 	reportURL  string
-	instanceID string
+	instanceID int64
 	client     *http.Client
 	ticker     *time.Ticker
 	stopChan   chan bool
@@ -30,14 +31,18 @@ type Reporter struct {
 // NewReporter создает новый telemetry reporter
 func NewReporter(getStats func() (playerCount, maxPlayers uint32)) *Reporter {
 	reportURL := os.Getenv("GAME_SERVER_NODE_REPORT_URL")
-	instanceID := os.Getenv("GAME_SERVER_NODE_INSTANCE_ID")
+	instanceIDStr := os.Getenv("GAME_SERVER_NODE_INSTANCE_ID")
 
 	// Fallback для локальной разработки
 	if reportURL == "" {
 		reportURL = "http://localhost:44045/v1/report"
 	}
-	if instanceID == "" {
-		instanceID = "local-dev-instance"
+
+	var instanceID int64 = 1 // fallback
+	if instanceIDStr != "" {
+		if v, err := strconv.ParseInt(instanceIDStr, 10, 64); err == nil {
+			instanceID = v
+		}
 	}
 
 	return &Reporter{
@@ -58,7 +63,7 @@ func (r *Reporter) Start() {
 
 	r.ticker = time.NewTicker(10 * time.Second)
 	go r.loop()
-	log.Printf("Telemetry reporter started: url=%s instance=%s", r.reportURL, r.instanceID)
+	log.Printf("Telemetry reporter started: url=%s instance=%d", r.reportURL, r.instanceID)
 }
 
 // Stop останавливает reporter

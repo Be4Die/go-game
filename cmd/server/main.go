@@ -63,7 +63,7 @@ func main() {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
-		log.Printf("Received telemetry report: instance=%s players=%d/%d",
+		log.Printf("Received telemetry report: instance=%d players=%d/%d",
 			report.InstanceID, report.PlayerCount, report.MaxPlayers)
 		w.WriteHeader(http.StatusOK)
 	})
