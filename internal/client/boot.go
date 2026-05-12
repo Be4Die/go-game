@@ -14,26 +14,27 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// discoverResponse соответствует формату из гайда Orchestrator
+// discoverResponse — реальный формат ответа Orchestrator
 type discoverResponse struct {
-	Instances []gameInstance `json:"instances"`
+	Status  string           `json:"status"`
+	Message string           `json:"message"`
+	Servers []serverEndpoint `json:"servers"`
 }
 
-type gameInstance struct {
-	ID               string                 `json:"id"`
-	ServerAddress    string                 `json:"server_address"`
-	Protocol         string                 `json:"protocol"`
-	PlayerCount      uint32                 `json:"player_count"`
-	MaxPlayers       uint32                 `json:"max_players"`
-	Status           string                 `json:"status"`
-	DeveloperPayload map[string]interface{} `json:"developer_payload,omitempty"`
+type serverEndpoint struct {
+	InstanceID  string `json:"instance_id"`
+	Address     string `json:"address"`
+	Port        uint32 `json:"port"`
+	Protocol    string `json:"protocol"`
+	PlayerCount uint32 `json:"player_count"`
+	MaxPlayers  uint32 `json:"max_players"`
 }
 
 // queueStatusResponse — ответ от Orchestrator на запрос статуса очереди
 type queueStatusResponse struct {
-	Position            int64  `json:"position"`
-	EstimatedWaitSeconds int64 `json:"estimated_wait_seconds"`
-	ReservedInstanceID  string `json:"reserved_instance_id"`
+	Position             int64  `json:"position"`
+	EstimatedWaitSeconds int64  `json:"estimated_wait_seconds"`
+	ReservedInstanceID   string `json:"reserved_instance_id"`
 }
 
 // GameBoot выполняет полный цикл подключения: Discovery -> [Queue] -> WebSocket -> Join
@@ -61,12 +62,12 @@ func GameBoot(container *DataContainer, nickname, model string) {
 
 	log.Printf("Discovering game server via orchestrator at %s...", orchestratorURL)
 
-	instance, err := discoverServer(orchestratorURL, gameID)
+	server, err := discoverServer(orchestratorURL, gameID)
 	if err != nil {
 		if cfg.UseServerSideQueue {
 			container.ConnectionStatus = "No servers available. Joining queue..."
 			log.Println("No servers available, joining queue...")
-			instance, err = joinQueueAndWait(orchestratorURL, gameID, container)
+			server, err = joinQueueAndWait(orchestratorURL, gameID, container)
 			if err != nil {
 				log.Printf("Queue failed: %v", err)
 				container.NetworkError = "Queue failed: " + err.Error()
@@ -83,11 +84,10 @@ func GameBoot(container *DataContainer, nickname, model string) {
 		}
 	}
 
-	container.ConnectionStatus = fmt.Sprintf("Server found! Connecting to %s...", instance.ServerAddress)
-	log.Printf("Connecting to server at %s (instance: %s, players: %d/%d, status: %s)...",
-		instance.ServerAddress, instance.ID, instance.PlayerCount, instance.MaxPlayers, instance.Status)
-
-	wsURL := fmt.Sprintf("ws://%s/ws", instance.ServerAddress)
+	wsURL := fmt.Sprintf("ws://%s:%d/ws", server.Address, server.Port)
+	container.ConnectionStatus = fmt.Sprintf("Server found! Connecting to %s:%d...", server.Address, server.Port)
+	log.Printf("Connecting to server at %s (instance: %s, players: %d/%d, protocol: %s)...",
+		wsURL, server.InstanceID, server.PlayerCount, server.MaxPlayers, server.Protocol)
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
@@ -166,7 +166,7 @@ func GameBoot(container *DataContainer, nickname, model string) {
 	}
 }
 
-func discoverServer(orchestratorURL string, gameID int64) (*gameInstance, error) {
+func discoverServer(orchestratorURL string, gameID int64) (*serverEndpoint, error) {
 	url := fmt.Sprintf("%s/api/v1/games/%d/discover", orchestratorURL, gameID)
 
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -186,40 +186,38 @@ func discoverServer(orchestratorURL string, gameID int64) (*gameInstance, error)
 		return nil, fmt.Errorf("failed to decode discovery response: %w", err)
 	}
 
-	if len(discResp.Instances) == 0 {
-		return nil, fmt.Errorf("no instances available for game %d", gameID)
+	if len(discResp.Servers) == 0 {
+		return nil, fmt.Errorf("no servers available for game %d", gameID)
 	}
 
-	// Ищем первый подходящий инстанс: running, websocket и не заполненный
-	for _, inst := range discResp.Instances {
-		if inst.Status == "running" && (inst.Protocol == "websocket" || inst.Protocol == "ws") {
-			if inst.PlayerCount < inst.MaxPlayers {
-				return &inst, nil
-			}
+	// Ищем первый подходящий сервер: PROTOCOL_WEBSOCKET и не заполненный
+	for _, s := range discResp.Servers {
+		if s.Protocol == "PROTOCOL_WEBSOCKET" && s.PlayerCount < s.MaxPlayers {
+			return &s, nil
 		}
 	}
 
-	// Если не нашли идеальный, берем первый running с websocket
-	for _, inst := range discResp.Instances {
-		if inst.Status == "running" && (inst.Protocol == "websocket" || inst.Protocol == "ws") {
-			return &inst, nil
+	// Если не нашли идеальный, берем первый с PROTOCOL_WEBSOCKET
+	for _, s := range discResp.Servers {
+		if s.Protocol == "PROTOCOL_WEBSOCKET" {
+			return &s, nil
 		}
 	}
 
-	// Последний fallback — просто первый инстанс
-	return &discResp.Instances[0], nil
+	// Последний fallback — просто первый сервер
+	return &discResp.Servers[0], nil
 }
 
 // joinQueueAndWait реализует server-side очередь через API Orchestrator
-func joinQueueAndWait(orchestratorURL string, gameID int64, container *DataContainer) (*gameInstance, error) {
+func joinQueueAndWait(orchestratorURL string, gameID int64, container *DataContainer) (*serverEndpoint, error) {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 
 	// 1. Join queue
 	joinURL := fmt.Sprintf("%s/api/v1/games/%d/queue/join", orchestratorURL, gameID)
 	joinBody := map[string]interface{}{
-		"player_id":   container.PlayerNickname,
-		"region":      "default",
-		"party_size":  1,
+		"player_id":  container.PlayerNickname,
+		"region":     "default",
+		"party_size": 1,
 	}
 	bodyData, _ := json.Marshal(joinBody)
 	resp, err := httpClient.Post(joinURL, "application/json", bytes.NewReader(bodyData))
@@ -259,7 +257,7 @@ func joinQueueAndWait(orchestratorURL string, gameID int64, container *DataConta
 			resp.Body.Close()
 
 			if status.ReservedInstanceID != "" && status.ReservedInstanceID != "0" {
-				// Место зарезервировано! Получаем инстанс через Discovery
+				// Место зарезервировано! Получаем сервер через Discovery
 				container.ConnectionStatus = "Server reserved! Connecting..."
 				return discoverServer(orchestratorURL, gameID)
 			}

@@ -68,37 +68,47 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// Stub Discovery endpoint — позволяет серверу выступать как orchestrator для локального тестирования
+	// Stub Discovery endpoint — возвращает формат, совместимый с реальным Orchestrator
 	http.HandleFunc("/api/v1/games/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			return
 		}
-		// Ожидаем путь /api/v1/games/{game_id}/discover
-		// Или /api/v1/games/{game_id}/discover/
 		path := r.URL.Path
 		if len(path) < len("/api/v1/games/1/discover") || path[len(path)-len("/discover"):] != "/discover" {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		externalAddr := os.Getenv("EXTERNAL_ADDRESS")
-		if externalAddr == "" {
-			// Если адрес вида ":8080", превращаем в "localhost:8080"
-			if (*addr)[0] == ':' {
-				externalAddr = "localhost" + *addr
+
+		// Определяем хост и порт для ответа
+		host := os.Getenv("EXTERNAL_HOST")
+		portStr := os.Getenv("EXTERNAL_PORT")
+		if host == "" {
+			host = "localhost"
+		}
+		if portStr == "" {
+			// Парсим порт из addr (":8080" -> "8080")
+			if len(*addr) > 1 && (*addr)[0] == ':' {
+				portStr = (*addr)[1:]
 			} else {
-				externalAddr = *addr
+				portStr = "8080"
 			}
 		}
+		port := 8080
+		if p, err := strconv.Atoi(portStr); err == nil {
+			port = p
+		}
+
 		resp := map[string]interface{}{
-			"instances": []map[string]interface{}{
+			"status":  "DISCOVERY_STATUS_READY",
+			"message": "",
+			"servers": []map[string]interface{}{
 				{
-					"id":                os.Getenv("GAME_SERVER_NODE_INSTANCE_ID"),
-					"server_address":    externalAddr,
-					"protocol":          "websocket",
-					"player_count":      mgr.PlayerCount(),
-					"max_players":       mgr.MaxPlayers(),
-					"status":            "running",
-					"developer_payload": map[string]string{"map": "default", "mode": "sandbox"},
+					"instance_id":  os.Getenv("GAME_SERVER_NODE_INSTANCE_ID"),
+					"address":      host,
+					"port":         port,
+					"protocol":     "PROTOCOL_WEBSOCKET",
+					"player_count": mgr.PlayerCount(),
+					"max_players":  mgr.MaxPlayers(),
 				},
 			},
 		}
